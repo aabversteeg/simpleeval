@@ -408,17 +408,19 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
                     "({0})".format(node.attr))
         if node.attr in DISALLOW_METHODS:
             raise FeatureNotAvailable(
-                "Sorry, this method is not available. "
-                "({0})".format(node.attr))
+                    "Sorry, this method is not available. "
+                    "({0})".format(node.attr))
+        # eval node
+        node_evaluated = self._eval(node.value)
 
         try:
-            return self._eval(node.value)[node.attr]
+            return node_evaluated[node.attr]
         except (KeyError, TypeError):
             pass
 
         # Maybe the base object is an actual object, not just a dict
         try:
-            return getattr(self._eval(node.value), node.attr)
+            return getattr(node_evaluated, node.attr)
         except (AttributeError, TypeError):
             pass
 
