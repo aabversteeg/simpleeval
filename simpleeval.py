@@ -239,11 +239,11 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
             functions (add, random, get_val, whatever) and names. """
 
         if not operators:
-            operators = DEFAULT_OPERATORS
+            operators = DEFAULT_OPERATORS.copy()
         if not functions:
-            functions = DEFAULT_FUNCTIONS
+            functions = DEFAULT_FUNCTIONS.copy()
         if not names:
-            names = DEFAULT_NAMES
+            names = DEFAULT_NAMES.copy()
 
         self.operators = operators
         self.functions = functions
