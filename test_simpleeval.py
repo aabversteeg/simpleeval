@@ -5,14 +5,15 @@
     Most of this stuff is pretty basic.
 
 """
-# pylint: disable=too-many-public-methods, missing-docstring
-
-import unittest
-import operator
 import ast
+import operator
+# pylint: disable=too-many-public-methods, missing-docstring
+import sys
+import unittest
+
 import simpleeval
 from simpleeval import (
-    SimpleEval, EvalWithCompoundTypes, FeatureNotAvailable, FunctionNotDefined, NameNotDefined,
+    SimpleEval, EvalWithCompoundTypes, EvalWithAssignments, FeatureNotAvailable, FunctionNotDefined, NameNotDefined,
     InvalidExpression, AttributeDoesNotExist, simple_eval
 )
 
@@ -152,6 +153,14 @@ class TestBasic(DRYTest):
         self.t('1 is not "a"', True)
         self.t('1 is not None', True)
         self.t('None is not None', False)
+
+    def test_fstring(self):
+        if sys.version_info >= (3, 6, 0):
+            self.t('f""', "")
+            self.t('f"stuff"', "stuff")
+            self.t('f"one is {1} and two is {2}"', "one is 1 and two is 2")
+            self.t('f"1+1 is {1+1}"', "1+1 is 2")
+            self.t('f"{\'dramatic\':!<11}"', "dramatic!!!")
 
 
 class TestFunctions(DRYTest):
@@ -325,6 +334,10 @@ class TestTryingToBreakOut(DRYTest):
         with self.assertRaises(simpleeval.IterableTooLong):
             self.t("'" + (50000 * "stuff") + "'", 0)
 
+        if sys.version_info >= (3, 6, 0):
+            with self.assertRaises(simpleeval.IterableTooLong):
+                self.t("f'{\"foo\"*50000}'", 0)
+
     def test_bytes_array_test(self):
         self.t("'20000000000000000000'.encode() * 5000",
                '20000000000000000000'.encode() * 5000)
@@ -396,11 +409,11 @@ class TestTryingToBreakOut(DRYTest):
             self.t("True.__class__.__class__.__base__.__subclasses__()[-1]"
                    ".__init__.func_globals['sys'].exit(1)", 42)
 
-
     def test_string_format(self):
         # python has so many ways to break out!
         with self.assertRaises(simpleeval.FeatureNotAvailable):
-             self.t('"{string.__class__}".format(string="things")', 0)
+            self.t('"{string.__class__}".format(string="things")', 0)
+
 
 class TestCompoundTypes(DRYTest):
     """ Test the compound-types edition of the library """
@@ -486,6 +499,9 @@ class TestCompoundTypes(DRYTest):
 
 class TestNames(DRYTest):
     """ 'names', what other languages call variables... """
+
+    def setUp(self):
+        self.s = EvalWithCompoundTypes()
 
     def test_none(self):
         """ what to do when names isn't defined, or is 'none' """
@@ -633,6 +649,53 @@ class TestNames(DRYTest):
         self.s.names = name_handler
         self.t('a', 1)
         self.t('a + b', 3)
+
+
+class TestAssignments(DRYTest):
+    """ Test the assignment edition of the library """
+
+    def setUp(self):
+        self.s = EvalWithAssignments()
+
+    def test_assign(self):
+        self.t('a=1', None)
+        self.t('a', 1)
+
+    def test_reassign(self):
+        self.t('a=1', None)
+        self.t('a', 1)
+        self.t('a=2', None)
+        self.t('a', 2)
+
+    def test_assign_complex(self):
+        self.t('a=1+1+2', None)
+        self.t('a', 4)
+        self.t('b=15**2', None)
+        self.t('b', 225)
+        self.t('c=a+b', None)
+        self.t('c', 229)
+
+    def test_unpack(self):
+        self.t('a,b,c=1,2,3', None)
+        self.t('a', 1)
+        self.t('b', 2)
+        self.t('c', 3)
+
+    def test_unequal_unpack(self):
+        with self.assertRaises(ValueError):
+            self.t('a,b=1', None)
+        with self.assertRaises(ValueError):
+            self.t('a,b=1,2,3', None)
+        self.t('a=1,2,3', None)
+        self.t('a', (1, 2, 3))
+
+    def test_names_function(self):
+        self.s.names = lambda n: n  # each name's value is just the name
+        with self.assertRaises(TypeError):
+            self.t('a,b=1,2', None)
+        with self.assertRaises(TypeError):
+            self.t('a=2', None)
+        self.s.names = {}  # clean up for later tests
 
 
 class TestWhitespace(DRYTest):

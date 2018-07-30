@@ -83,8 +83,8 @@ well:
 """
 
 import ast
-import sys
 import operator as op
+import sys
 from random import random
 
 ########################################
@@ -97,6 +97,7 @@ DISALLOW_METHODS = ['format']
 
 PYTHON3 = sys.version_info[0] == 3
 
+
 ########################################
 # Exceptions:
 
@@ -108,6 +109,7 @@ class InvalidExpression(Exception):
 
 class FunctionNotDefined(InvalidExpression):
     """ sorry! That function isn't defined! """
+
     def __init__(self, func_name, expression):
         self.message = "Function '{0}' not defined," \
                        " for expression '{1}'.".format(func_name, expression)
@@ -120,6 +122,7 @@ class FunctionNotDefined(InvalidExpression):
 
 class NameNotDefined(InvalidExpression):
     """ a name isn't defined. """
+
     def __init__(self, name, expression):
         self.name = name
         self.message = "'{0}' is not defined for expression '{1}'".format(
@@ -132,6 +135,7 @@ class NameNotDefined(InvalidExpression):
 
 class AttributeDoesNotExist(InvalidExpression):
     """attribute does not exist"""
+
     def __init__(self, attr, expression):
         self.message = \
             "Attribute '{0}' does not exist in expression '{1}'".format(
@@ -176,9 +180,9 @@ def safe_power(a, b):  # pylint: disable=invalid-name
 def safe_mult(a, b):  # pylint: disable=invalid-name
     """ limit the number of times an iterable can be repeated... """
 
-    if hasattr(a, '__len__') and b*len(a) > MAX_STRING_LENGTH:
+    if hasattr(a, '__len__') and b * len(a) > MAX_STRING_LENGTH:
         raise IterableTooLong('Sorry, I will not evalute something that long.')
-    if hasattr(b, '__len__') and a*len(b) > MAX_STRING_LENGTH:
+    if hasattr(b, '__len__') and a * len(b) > MAX_STRING_LENGTH:
         raise IterableTooLong('Sorry, I will not evalute something that long.')
 
     return a * b
@@ -215,6 +219,7 @@ DEFAULT_FUNCTIONS = {"rand": random, "randint": random_int,
                      "str": str if PYTHON3 else unicode}
 
 DEFAULT_NAMES = {"True": True, "False": False}
+
 
 ########################################
 # And the actual evaluator:
@@ -258,7 +263,7 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
             ast.Subscript: self._eval_subscript,
             ast.Attribute: self._eval_attribute,
             ast.Index: self._eval_index,
-            ast.Slice: self._eval_slice,
+            ast.Slice: self._eval_slice
         }
 
         # py3k stuff:
@@ -266,6 +271,11 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
             self.nodes[ast.NameConstant] = self._eval_nameconstant
         elif isinstance(self.names, dict) and "None" not in self.names:
             self.names["None"] = None
+
+        # py3.6
+        if hasattr(ast, 'JoinedStr'):
+            self.nodes[ast.JoinedStr] = self._eval_joinedstr  # f-string
+            self.nodes[ast.FormattedValue] = self._eval_formattedvalue  # formatted value in f-string
 
     def eval(self, expr):
         """ evaluate an expresssion, using the operators, functions and
@@ -298,7 +308,7 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
         if len(node.s) > MAX_STRING_LENGTH:
             raise IterableTooLong("String Literal in statement is too long!"
                                   " ({0}, when {1} is max)".format(
-                                      len(node.s), MAX_STRING_LENGTH))
+                len(node.s), MAX_STRING_LENGTH))
         return node.s
 
     @staticmethod
@@ -339,7 +349,7 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
 
     def _eval_ifexp(self, node):
         return self._eval(node.body) if self._eval(node.test) \
-                                         else self._eval(node.orelse)
+            else self._eval(node.orelse)
 
     def _eval_call(self, node):
         if isinstance(node.func, ast.Attribute):
@@ -398,8 +408,8 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
                     "({0})".format(node.attr))
         if node.attr in DISALLOW_METHODS:
             raise FeatureNotAvailable(
-                    "Sorry, this method is not available. "
-                    "({0})".format(node.attr))
+                "Sorry, this method is not available. "
+                "({0})".format(node.attr))
 
         try:
             return self._eval(node.value)[node.attr]
@@ -427,6 +437,19 @@ class SimpleEval(object):  # pylint: disable=too-few-public-methods
         if node.step is not None:
             step = self._eval(node.step)
         return slice(lower, upper, step)
+
+    def _eval_joinedstr(self, node):
+        evaluated_values = [str(self._eval(n)) for n in node.values]
+        if sum(len(v) for v in evaluated_values) > MAX_STRING_LENGTH:
+            raise IterableTooLong("Sorry, I will not evaluate something this long.")
+        return ''.join(evaluated_values)
+
+    def _eval_formattedvalue(self, node):
+        if node.format_spec:
+            fmt = "{:" + self._eval(node.format_spec) + "}"
+            return fmt.format(self._eval(node.value))
+        else:
+            return self._eval(node.value)
 
 
 class EvalWithCompoundTypes(SimpleEval):
@@ -463,6 +486,53 @@ class EvalWithCompoundTypes(SimpleEval):
 
     def _eval_set(self, node):
         return set(self._eval(x) for x in node.elts)
+
+
+class EvalWithAssignments(EvalWithCompoundTypes):
+    """
+    SimpleEval, but allows the setting of evaluator's names with name=value.
+    """
+
+    def __init__(self, operators=None, functions=None, names=None):
+        super(EvalWithAssignments, self).__init__(operators, functions, names)
+
+    def eval(self, expr):  # allow for ast.Assign to set names
+        """ evaluate an expression, using the operators, functions and
+            names previously set up. """
+        self.expr = expr
+        expression = ast.parse(expr.strip()).body[0]
+
+        if isinstance(expression, ast.Expr):
+            return self._eval(expression.value)
+        elif isinstance(expression, ast.Assign):
+            return self._eval_assign(expression)
+        else:
+            raise TypeError("Unknown ast body type")
+
+    def _eval_assign(self, node):
+        names = node.targets[0]
+        values = node.value
+        self._assign(names, values)
+
+    def _assign(self, names, values):
+        if isinstance(names, ast.Tuple):  # unpacking variables
+            names = [n.id for n in names.elts]  # turn ast into str
+            if not isinstance(values, ast.Tuple):
+                raise ValueError("unequal unpack: {} names, 1 value".format(len(names)))
+            values = values.elts
+            if not len(values) == len(names):
+                raise ValueError("unequal unpack: {} names, {} values".format(len(names), len(values)))
+            else:
+                if not isinstance(self.names, dict):
+                    raise TypeError("cannot set name: incorrect name type")
+                else:
+                    for name, value in zip(names, values):
+                        self.names[name] = self._eval(value)  # and assign it
+        else:
+            if not isinstance(self.names, dict):
+                raise TypeError("cannot set name: incorrect name type")
+            else:
+                self.names[names.id] = self._eval(values)
 
 
 def simple_eval(expr, operators=None, functions=None, names=None):
