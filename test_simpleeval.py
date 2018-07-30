@@ -5,6 +5,7 @@
     Most of this stuff is pretty basic.
 
 """
+import os
 import ast
 import operator
 # pylint: disable=too-many-public-methods, missing-docstring
@@ -198,6 +199,10 @@ class TestFunctions(DRYTest):
         # now it works:
 
         self.t("int(read('file.txt'))", 42)
+
+        # remove file afterwards
+
+        os.remove('file.txt')
 
     def test_randoms(self):
         """ test the rand() and randint() functions """
